@@ -23,7 +23,8 @@
     "pluginManagement": "Plugin Management",
     "systemSettings": "System Settings",
     "mcpManagement": "MCP Management",
-    "mcpConfigurations": "MCP Configurations"
+    "mcpConfigurations": "MCP Configurations",
+    "nacosManagement": "Nacos Management"
   },
   "index": {
     "title": "Higress Console"
@@ -953,6 +954,43 @@
       "success": "Command copied to clipboard",
       "fail": "Copy failed, please copy manually",
       "button": "Copy Command"
+    }
+  },
+  "nacos": {
+    "title": "Nacos Configurations",
+    "edit": "Edit Configuration",
+    "publishSuccess": "Published successfully",
+    "namespacePlaceholder": "Select Namespace",
+    "dataIdPlaceholder": "Input Data ID",
+    "groupPlaceholder": "Input Group",
+    "columns": {
+      "dataId": "Data ID",
+      "group": "Group",
+      "appName": "App Name",
+      "type": "Type",
+      "action": "Action",
+      "namespace": "Namespace"
+    },
+    "form": {
+      "dataId": "Data ID",
+      "group": "Group",
+      "type": "Type",
+      "appName": "App Name",
+      "description": "Description",
+      "content": "Content"
+    },
+    "apiRegistry": {
+      "tab": "API Registry",
+      "raw": "Raw Content",
+      "selectAll": "Select All",
+      "selected": "Selected: {{count}}",
+      "columns": {
+        "method": "Method",
+        "path": "Path",
+        "summary": "Summary",
+        "description": "Description"
+      },
+      "editDescription": "Edit description"
     }
   }
 }

@@ -23,7 +23,8 @@
     "pluginManagement": "插件配置",
     "systemSettings": "系统设置",
     "mcpManagement": "MCP管理",
-    "mcpConfigurations": "MCP配置"
+    "mcpConfigurations": "MCP配置",
+    "nacosManagement": "Nacos配置管理"
   },
   "index": {
     "title": "Higress Console"
@@ -792,7 +793,6 @@
     },
     "columns": {
       "name": "服务名称",
-      "description": "描述",
       "type": "服务类型",
       "action": "操作"
     },
@@ -953,6 +953,43 @@
       "success": "命令已复制到剪贴板",
       "fail": "复制失败，请手动复制",
       "button": "复制命令"
+    }
+  },
+  "nacos": {
+    "title": "Nacos 配置管理",
+    "edit": "编辑配置",
+    "publishSuccess": "发布成功",
+    "namespacePlaceholder": "请选择命名空间",
+    "dataIdPlaceholder": "请输入 Data ID",
+    "groupPlaceholder": "请输入 Group",
+    "columns": {
+      "dataId": "Data ID",
+      "group": "Group",
+      "appName": "归属应用",
+      "type": "配置格式",
+      "action": "操作",
+      "namespace": "命名空间"
+    },
+    "form": {
+      "dataId": "Data ID",
+      "group": "Group",
+      "type": "配置格式",
+      "appName": "归属应用",
+      "description": "描述",
+      "content": "配置内容"
+    },
+    "apiRegistry": {
+      "tab": "API Registry",
+      "raw": "原始配置",
+      "selectAll": "全选",
+      "selected": "已选择: {{count}}",
+      "columns": {
+        "method": "Method",
+        "path": "Path",
+        "summary": "Summary",
+        "description": "Description"
+      },
+      "editDescription": "编辑描述"
     }
   }
 }

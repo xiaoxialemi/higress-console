@@ -1,4 +1,5 @@
 import {
+  ClusterOutlined,
   DashboardOutlined,
   DeploymentUnitOutlined,
   FullscreenExitOutlined,
@@ -112,6 +113,11 @@ export default {
         name: 'menu.systemSettings',
         path: '/system',
         icon: <SettingOutlined />,
+      },
+      {
+        name: 'menu.nacosManagement',
+        path: '/nacos',
+        icon: <ClusterOutlined />,
       },
     ],
   },
