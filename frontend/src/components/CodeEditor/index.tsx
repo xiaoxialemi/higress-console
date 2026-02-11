@@ -3,7 +3,8 @@ import * as monaco from 'monaco-editor';
 import Editor, { loader } from '@monaco-editor/react';
 
 export interface IProps {
-  defaultValue: string;
+  value?: string;
+  defaultValue?: string;
   onChange?: (v: string) => void;
   extraOptions?: any;
   editorHeight?: string;
@@ -15,13 +16,13 @@ export interface CodeEditorRef {
 }
 
 const CodeEditor = forwardRef((props: IProps, ref) => {
-  const { defaultValue, onChange, extraOptions, editorHeight, defaultLanguage } = props;
+  const { value, defaultValue, onChange, extraOptions, editorHeight, defaultLanguage } = props;
   loader.config({ monaco });
 
   const editorRef = useRef<any>(null);
 
-  function handleEditorChange(value) {
-    onChange && onChange(value);
+  function handleEditorChange(val?: string) {
+    onChange && onChange(val || '');
   }
 
   // 保存 editor 实例
@@ -29,25 +30,24 @@ const CodeEditor = forwardRef((props: IProps, ref) => {
     editorRef.current = editor;
   };
 
-  // defaultValue 变化时，手动 setValue
+  // value 或 defaultValue 变化时，手动 setValue
   useEffect(() => {
-    if (editorRef.current && typeof defaultValue === 'string') {
+    const targetValue = value !== undefined ? value : defaultValue;
+    if (editorRef.current && typeof targetValue === 'string') {
       // 只有内容不同时才 setValue，避免光标跳动
-      if (editorRef.current.getValue() !== defaultValue) {
-        editorRef.current.setValue(defaultValue);
+      if (editorRef.current.getValue() !== targetValue) {
+        editorRef.current.setValue(targetValue);
       }
     }
-  }, [defaultValue]);
+  }, [value, defaultValue]);
 
   useImperativeHandle(ref, () => {
     return {
       pushContent: (content: string) => {
         const editor = editorRef.current;
         if (!editor) {
-          console.warn("Editor instance is not available.");
           return;
         }
-        console.log("Pushing content to editor:", content);
         editor.executeEdits('', [{
           range: editor.getModel().getFullModelRange(),
           text: content,
@@ -61,6 +61,7 @@ const CodeEditor = forwardRef((props: IProps, ref) => {
       <Editor
         height={editorHeight || '370px'}
         defaultLanguage={defaultLanguage || 'yaml'}
+        value={value}
         defaultValue={defaultValue}
         options={{
           minimap: {
