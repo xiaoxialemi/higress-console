@@ -6,9 +6,11 @@
 
 ## 一、 核心架构：彻底分离部署方案 (最佳实践)
 
-由于官方 Higress Helm Chart (v2.1.10 及更早版本) 存在缺陷，不支持通过参数直接彻底禁用 Console，我们需要通过修改本地 Chart 源码来实现“干净”的解耦。
+由于官方 Higress Helm Chart (v2.1.10 及更早版本) 存在缺陷，不支持通过参数直接彻底禁用 Console，我们需要通过修改本地 Chart
+源码来实现“干净”的解耦。
 
 ### 1.1 背景准备：修复官方 Chart
+
 1. **下载并解压官方 Chart 包**：
    ```bash
    cd /安装目录
@@ -25,7 +27,9 @@
    ```
 
 ### 1.2 部署核心组件 (不含控制台)
+
 在 `higress` 源码目录下执行安装：
+
 ```bash
 # 安装核心组件，此时 enabled=false 将彻底生效，不再创建控制台相关资源
 helm upgrade --install higress . -n higress-system \
@@ -48,6 +52,7 @@ kubectl patch svc higress-controller -n higress-system --type='merge' -p '{"spec
 ```
 
 ### 1.3 部署自定义控制台 (使用本项目 Chart)
+
 ```bash
 cd /higress-console的安装目录
 
@@ -68,6 +73,7 @@ kubectl patch svc higress-console -n higress-system --type='merge' \
 ## 二、 日常开发：构建与更新流程
 
 ### 2.1 本地编译 (Windows)
+
 ```powershell
 # 1. 检查 application.properties 确保端口为默认(15014)，无硬编码外部IP
 # 2. 编译生成 JAR
@@ -75,6 +81,7 @@ kubectl patch svc higress-console -n higress-system --type='merge' \
 ```
 
 ### 2.2 镜像构建 (服务器)
+
 ```bash
 cd /home/haiyu/app/higress-console
 
@@ -87,6 +94,7 @@ docker save higress-console:custom-v1 | k3s ctr images import -
 ```
 
 ### 2.3 生效更新
+
 ```bash
 # 重启自定义控制台 Pod
 kubectl rollout restart deployment/higress-console -n higress-system
@@ -96,18 +104,21 @@ kubectl rollout restart deployment/higress-console -n higress-system
 
 ## 三、 避坑指南总结
 
-| 问题场景 | 原因分析 | 解决方案 |
-| :--- | :--- | :--- |
-| **官方控制台删不掉** | `Chart.yaml` 缺少 `condition` 绑定。 | 参考 1.1 节，手动修改官方 Chart 源码。 |
-| **服务列表超时** | JAR 里硬编码了 NodePort (31014)。 | 确保包内配置使用 Service Port (15014)。 |
-| **脚本执行失败** | Windows 换行符 (CRLF) 冲突。 | 构建前执行 `sed -i 's/\r$//' start.sh`。 |
-| **k3s 无法加载镜像** | k3s 不共用 Docker 的本地存储。 | 必须使用 `k3s ctr images import` 导入。 |
-| **自定义 NodePort 偏移** | Helm Chart 默认可能不锁定 NodePort。 | 使用 `kubectl patch svc` 显式固定端口。 |
+| 问题场景                | 原因分析                            | 解决方案                               |
+|:--------------------|:--------------------------------|:-----------------------------------|
+| **官方控制台删不掉**        | `Chart.yaml` 缺少 `condition` 绑定。 | 参考 1.1 节，手动修改官方 Chart 源码。          |
+| **服务列表超时**          | JAR 里硬编码了 NodePort (31014)。     | 确保包内配置使用 Service Port (15014)。     |
+| **脚本执行失败**          | Windows 换行符 (CRLF) 冲突。          | 构建前执行 `sed -i 's/\r$//' start.sh`。 |
+| **k3s 无法加载镜像**      | k3s 不共用 Docker 的本地存储。           | 必须使用 `k3s ctr images import` 导入。   |
+| **自定义 NodePort 偏移** | Helm Chart 默认可能不锁定 NodePort。    | 使用 `kubectl patch svc` 显式固定端口。     |
 
 ---
 
 ## 四、 常用维护命令
+
 - **资源监控**: `kubectl get pods -n higress-system -w`
 - **查看监听端口** `kubectl get svc -n higress-system`
 - **日志诊断**: `kubectl logs -f deployment/higress-console -n higress-system`
-- **连通测试**: `kubectl exec -it <pod-name> -n higress-system -- curl -I http://higress-controller.higress-system.svc:15014/debug/registryz`
+- **看指定pod的日志**: `kubectl logs -n higress-system higress-console-5b7f965dc6-rq5qx`
+- **连通测试**:
+  `kubectl exec -it <pod-name> -n higress-system -- curl -I http://higress-controller.higress-system.svc:15014/debug/registryz`
