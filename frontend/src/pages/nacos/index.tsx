@@ -1,12 +1,12 @@
 /* eslint-disable max-lines */
-import { ClusterOutlined, RedoOutlined } from '@ant-design/icons';
+import { ClusterOutlined, RedoOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-layout';
 import { useRequest } from 'ahooks';
 import { Button, Card, Col, Form, Input, message, Modal, Row, Select, Space, Table, Tag, Tabs } from 'antd';
 import React, { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConfigs, getNamespaces, publishConfig, getConfigDetail, NacosConfig } from '@/services/nacos';
-import { swaggerToMcpConfig } from '@/services/mcp';
+import { swaggerToMcpConfig, registerToNacos } from '@/services/mcp';
 import CodeEditor from '@/components/CodeEditor';
 
 const { Option } = Select;
@@ -44,6 +44,117 @@ interface ConfigMetadata {
   collectedAt?: number;
 }
 
+interface EntityFieldTableProps {
+  apiRecord: ApiRegistryItem;
+  paramRecord: ApiParameter;
+  onFieldChange: (api: ApiRegistryItem, pName: string, fName: string, val: string) => void;
+}
+
+const EntityFieldTable: React.FC<EntityFieldTableProps> = ({ apiRecord, paramRecord, onFieldChange }) => {
+  const columns = useMemo(() => [
+    { title: 'Field Name', dataIndex: 'name', key: 'name', width: 150 },
+    { title: 'Type', dataIndex: 'type', key: 'type', width: 150 },
+    {
+      title: 'Required',
+      dataIndex: 'required',
+      key: 'required',
+      width: 100,
+      render: (val: boolean) => (
+        <Tag color={val ? 'red' : 'default'}>{val ? 'true' : 'false'}</Tag>
+      ),
+    },
+    {
+      title: 'Description',
+      dataIndex: 'description',
+      key: 'description',
+      render: (val: string, fieldRecord: ApiField) => (
+        <Input
+          value={val}
+          onChange={(e) => onFieldChange(apiRecord, paramRecord.name, fieldRecord.name, e.target.value)}
+          placeholder="Edit description"
+        />
+      ),
+    },
+  ], [apiRecord, paramRecord, onFieldChange]);
+
+  return (
+    <div style={{ padding: '12px', background: '#fdfaff', borderLeft: '3px solid #722ed1' }}>
+      <div style={{ color: '#722ed1', fontWeight: 'bold', marginBottom: 8 }}>
+        Entity Fields ({paramRecord.type}):
+      </div>
+      <Table
+        columns={columns}
+        dataSource={paramRecord.fields}
+        pagination={false}
+        size="small"
+        rowKey={(f) => f.name}
+      />
+    </div>
+  );
+};
+
+interface ParameterTableProps {
+  apiRecord: ApiRegistryItem;
+  onParamChange: (api: ApiRegistryItem, pName: string, val: string) => void;
+  onFieldChange: (api: ApiRegistryItem, pName: string, fName: string, val: string) => void;
+}
+
+const ParameterTable: React.FC<ParameterTableProps> = ({ apiRecord, onParamChange, onFieldChange }) => {
+  const columns = useMemo(() => [
+    { title: 'Name', dataIndex: 'name', key: 'name', width: 150 },
+    { title: 'Loc', dataIndex: 'parameterType', key: 'parameterType', width: 150 },
+    { title: 'Type', dataIndex: 'type', key: 'type', width: 150 },
+    {
+      title: 'Req.',
+      dataIndex: 'required',
+      key: 'required',
+      width: 80,
+      render: (val: boolean) => (
+        <Tag color={val ? 'red' : 'default'}>{val ? 'true' : 'false'}</Tag>
+      ),
+    },
+    {
+      title: 'Description',
+      dataIndex: 'description',
+      key: 'description',
+      render: (val: string, paramRecord: ApiParameter) => (
+        <Input
+          value={val}
+          onChange={(e) => onParamChange(apiRecord, paramRecord.name, e.target.value)}
+          placeholder="Edit description"
+        />
+      ),
+    },
+  ], [apiRecord, onParamChange]);
+
+  return (
+    <div style={{ padding: '16px', background: '#fff', border: '1px solid #f0f0f0', borderRadius: '4px' }}>
+      <h4 style={{ marginBottom: 16 }}>Parameters:</h4>
+      <Table
+        columns={columns}
+        dataSource={apiRecord.parameters || []}
+        pagination={false}
+        size="small"
+        rowKey={(p) => p.name}
+        expandable={{
+          expandedRowRender: (paramRecord) => {
+            if (!paramRecord.fields || paramRecord.fields.length === 0) return null;
+            return (
+              <EntityFieldTable
+                apiRecord={apiRecord}
+                paramRecord={paramRecord}
+                onFieldChange={onFieldChange}
+              />
+            );
+          },
+          defaultExpandAllRows: true,
+          rowExpandable: (paramRecord) => (paramRecord.fields || []).length > 0,
+        }}
+      />
+    </div>
+  );
+};
+
 const NacosList: React.FC = () => {
   const { t } = useTranslation();
   const [form] = Form.useForm();
@@ -67,6 +178,7 @@ const NacosList: React.FC = () => {
   const [mcpResultVisible, setMcpResultVisible] = useState(false);
   const [mcpResultContent, setMcpResultContent] = useState<string>('');
   const [mcpConvertLoading, setMcpConvertLoading] = useState(false);
+  const [registerLoading, setRegisterLoading] = useState(false);
   const watchedContent = Form.useWatch('content', editForm);
   const watchedType = Form.useWatch('type', editForm);
 
@@ -242,40 +354,63 @@ const NacosList: React.FC = () => {
     }
   };
 
-  const handleApiDescriptionChange = (index: number, field: string, value: string) => {
-    const newData = [...apiData];
-    newData[index] = { ...newData[index], [field]: value };
+  const handleApiDescriptionChange = (record: ApiRegistryItem, field: string, value: string) => {
+    const newData = apiData.map((item) => {
+      if (item.path === record.path && item.httpMethod === record.httpMethod) {
+        return { ...item, [field]: value };
+      }
+      return item;
+    });
     setApiData(newData);
     updateContentFromApiData(newData);
   };
 
-  const handleParameterDescriptionChange = (apiIndex: number, paramIndex: number, value: string) => {
-    const newData = [...apiData];
-    const api = { ...newData[apiIndex] };
-    const params = [...(api.parameters || [])];
-    params[paramIndex] = { ...params[paramIndex], description: value };
-    api.parameters = params;
-    newData[apiIndex] = api;
+  const handleParameterDescriptionChange = (apiRecord: ApiRegistryItem, paramName: string, value: string) => {
+    const newData = apiData.map((item) => {
+      if (item.path === apiRecord.path && item.httpMethod === apiRecord.httpMethod) {
+        const params = (item.parameters || []).map((p) => {
+          if (p.name === paramName) {
+            return { ...p, description: value };
+          }
+          return p;
+        });
+        return { ...item, parameters: params };
+      }
+      return item;
+    });
     setApiData(newData);
     updateContentFromApiData(newData);
   };
 
-  const handleEntityFieldDescriptionChange = (apiIndex: number, paramIndex: number, fieldIndex: number, value: string) => {
-    const newData = [...apiData];
-    const api = { ...newData[apiIndex] };
-    const params = [...(api.parameters || [])];
-    const param = { ...params[paramIndex] };
-    const fieldsList = [...(param.fields || [])];
-    fieldsList[fieldIndex] = { ...fieldsList[fieldIndex], description: value };
-    param.fields = fieldsList;
-    params[paramIndex] = param;
-    api.parameters = params;
-    newData[apiIndex] = api;
+  const handleEntityFieldDescriptionChange = (
+    apiRecord: ApiRegistryItem,
+    paramName: string,
+    fieldName: string,
+    value: string,
+  ) => {
+    const newData = apiData.map((item) => {
+      if (item.path === apiRecord.path && item.httpMethod === apiRecord.httpMethod) {
+        const params = (item.parameters || []).map((p) => {
+          if (p.name === paramName) {
+            const fields = (p.fields || []).map((f) => {
+              if (f.name === fieldName) {
+                return { ...f, description: value };
+              }
+              return f;
+            });
+            return { ...p, fields };
+          }
+          return p;
+        });
+        return { ...item, parameters: params };
+      }
+      return item;
+    });
     setApiData(newData);
     updateContentFromApiData(newData);
   };
 
-  const apiColumns = [
+  const apiColumns = useMemo(() => [
     {
       title: t('nacos.apiRegistry.columns.method'),
       dataIndex: 'httpMethod',
@@ -301,10 +436,10 @@ const NacosList: React.FC = () => {
       title: t('nacos.apiRegistry.columns.summary'),
       dataIndex: 'summary',
       key: 'summary',
-      render: (val: string, record: ApiRegistryItem, index: number) => (
+      render: (val: string, record: ApiRegistryItem) => (
         <Input
           value={val}
-          onChange={(e) => handleApiDescriptionChange(index, 'summary', e.target.value)}
+          onChange={(e) => handleApiDescriptionChange(record, 'summary', e.target.value)}
           placeholder={t('nacos.apiRegistry.editDescription') as string}
         />
       ),
@@ -313,15 +448,15 @@ const NacosList: React.FC = () => {
       title: t('nacos.apiRegistry.columns.description') as string,
       dataIndex: 'description',
       key: 'description',
-      render: (val: string, record: ApiRegistryItem, index: number) => (
+      render: (val: string, record: ApiRegistryItem) => (
         <Input
           value={val}
-          onChange={(e) => handleApiDescriptionChange(index, 'description', e.target.value)}
+          onChange={(e) => handleApiDescriptionChange(record, 'description', e.target.value)}
           placeholder={t('nacos.apiRegistry.editDescription') as string}
         />
       ),
     },
-  ];
+  ], [apiData, t]);
 
   const columns = [
     {
@@ -467,8 +602,8 @@ const NacosList: React.FC = () => {
     }
     setMcpConvertLoading(true);
     try {
-      const selectedApis = apiData.filter((item, index) => {
-        const key = `${item.path}@@${index}`;
+      const selectedApis = apiData.filter((item) => {
+        const key = `${item.path}@@${item.httpMethod}`;
         return selectedRowKeys.includes(key);
       });
 
@@ -488,6 +623,75 @@ const NacosList: React.FC = () => {
       message.error(`MCP config conversion failed: ${error?.message || 'Unknown error'}`);
     } finally {
       setMcpConvertLoading(false);
+    }
+  };
+
+  const handleRegisterToNacos = async () => {
+    setRegisterLoading(true);
+    try {
+      // Parse the YAML content back to structured data for the backend
+      // The mcpResultContent is the YAML output from the Go binary
+      // We need to send the structured tool data to the backend
+      const selectedApis = apiData.filter((item) => {
+        const key = `${item.path}@@${item.httpMethod}`;
+        return selectedRowKeys.includes(key);
+      });
+
+      const tools = selectedApis.map((api) => {
+        const args = (api.parameters || []).flatMap((param) => {
+          if (param.parameterType === 'REQUEST_BODY') {
+            return (param.fields || []).map((f) => ({
+              name: f.name,
+              description: f.description || '',
+              type: javaTypeToOpenApi(f.type).type,
+              required: f.required || false,
+              position: 'body',
+            }));
+          }
+          return [{
+            name: param.name,
+            description: param.description || '',
+            type: javaTypeToOpenApi(param.type).type,
+            required: param.required || false,
+            position: param.parameterType === 'PATH' ? 'path' : 'query',
+          }];
+        });
+
+        const method = (api.httpMethod || 'GET').toUpperCase();
+        const headers = ['POST', 'PUT', 'PATCH'].includes(method)
+          ? [{ key: 'Content-Type', value: 'application/json' }]
+          : [];
+
+        return {
+          name: `${method.toLowerCase()}_${api.path.replace(/[^a-zA-Z0-9]/g, '_')}`,
+          description: api.summary || api.description || '',
+          args,
+          requestTemplate: {
+            url: api.path,
+            method,
+            headers,
+          },
+        };
+      });
+
+      const payload = {
+        serverName: configMetadata.serviceName || 'api-server',
+        description: `MCP Server for ${configMetadata.serviceName || 'API'}`,
+        namespaceId: configMetadata.sourceNamespace || selectedNamespace || 'public',
+        serviceName: configMetadata.serviceName || '',
+        tools,
+      };
+
+      const res = await registerToNacos(payload);
+      if (res && res.data) {
+        message.success(`MCP Server registered successfully: ${res.data}`);
+      } else {
+        message.success('MCP Server registered successfully!');
+      }
+    } catch (error: any) {
+      message.error(`Registration failed: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setRegisterLoading(false);
     }
   };
 
@@ -605,15 +809,26 @@ const NacosList: React.FC = () => {
                     style={{ width: 300 }}
                     allowClear
                   />
-                  <Button
-                    type="primary"
-                    icon={<ClusterOutlined />}
-                    disabled={selectedRowKeys.length === 0}
-                    loading={mcpConvertLoading}
-                    onClick={handleConvertToMcp}
-                  >
-                    生成 MCP 配置 ({selectedRowKeys.length})
-                  </Button>
+                  <Space>
+                    <Button
+                      type="primary"
+                      icon={<ClusterOutlined />}
+                      disabled={selectedRowKeys.length === 0}
+                      loading={mcpConvertLoading}
+                      onClick={handleConvertToMcp}
+                    >
+                      生成 MCP 配置 ({selectedRowKeys.length})
+                    </Button>
+                    <Button
+                      type="default"
+                      icon={<CloudUploadOutlined />}
+                      disabled={selectedRowKeys.length === 0}
+                      loading={registerLoading}
+                      onClick={handleRegisterToNacos}
+                    >
+                      注册到 Nacos ({selectedRowKeys.length})
+                    </Button>
+                  </Space>
                 </div>
                 <Table
                   rowSelection={{
@@ -623,98 +838,16 @@ const NacosList: React.FC = () => {
                   columns={apiColumns}
                   dataSource={filteredApiData}
                   pagination={false}
-                  rowKey={(record, index) => `${record.path}@@${index}`}
+                  rowKey={(record) => `${record.path}@@${record.httpMethod}`}
                   scroll={{ y: 500 }}
                   expandable={{
-                    expandedRowRender: (apiRecord, apiIndex) => {
-                      const parameterColumns = [
-                        { title: 'Name', dataIndex: 'name', key: 'name', width: 150 },
-                        { title: 'Loc', dataIndex: 'parameterType', key: 'parameterType', width: 150 },
-                        { title: 'Type', dataIndex: 'type', key: 'type', width: 150 },
-                        {
-                          title: 'Req.',
-                          dataIndex: 'required',
-                          key: 'required',
-                          width: 80,
-                          render: (val: boolean) => (
-                            <Tag color={val ? 'red' : 'default'}>{val ? 'true' : 'false'}</Tag>
-                          ),
-                        },
-                        {
-                          title: 'Description',
-                          dataIndex: 'description',
-                          key: 'description',
-                          render: (val: string, paramRecord: ApiParameter, paramIndex: number) => (
-                            <Input
-                              value={val}
-                              onChange={(e) => handleParameterDescriptionChange(apiIndex, paramIndex, e.target.value)}
-                              placeholder="Edit description"
-                            />
-                          ),
-                        },
-                      ];
-
-                      return (
-                        <div style={{ padding: '16px', background: '#fff', border: '1px solid #f0f0f0', borderRadius: '4px' }}>
-                          <h4 style={{ marginBottom: 16 }}>Parameters:</h4>
-                          <Table
-                            columns={parameterColumns}
-                            dataSource={apiRecord.parameters || []}
-                            pagination={false}
-                            size="small"
-                            rowKey={(p) => p.name}
-                            expandable={{
-                              expandedRowRender: (paramRecord, paramIndex) => {
-                                if (!paramRecord.fields || paramRecord.fields.length === 0) return null;
-
-                                const fieldColumns = [
-                                  { title: 'Field Name', dataIndex: 'name', key: 'name', width: 150 },
-                                  { title: 'Type', dataIndex: 'type', key: 'type', width: 150 },
-                                  {
-                                    title: 'Required',
-                                    dataIndex: 'required',
-                                    key: 'required',
-                                    width: 100,
-                                    render: (val: boolean) => (
-                                      <Tag color={val ? 'red' : 'default'}>{val ? 'true' : 'false'}</Tag>
-                                    ),
-                                  },
-                                  {
-                                    title: 'Description',
-                                    dataIndex: 'description',
-                                    key: 'description',
-                                    render: (val: string, fieldRecord: ApiField, fieldIndex: number) => (
-                                      <Input
-                                        value={val}
-                                        onChange={(e) => handleEntityFieldDescriptionChange(apiIndex, paramIndex, fieldIndex, e.target.value)}
-                                        placeholder="Edit description"
-                                      />
-                                    ),
-                                  },
-                                ];
-
-                                return (
-                                  <div style={{ padding: '12px', background: '#fdfaff', borderLeft: '3px solid #722ed1' }}>
-                                    <div style={{ color: '#722ed1', fontWeight: 'bold', marginBottom: 8 }}>
-                                      Entity Fields ({paramRecord.type}):
-                                    </div>
-                                    <Table
-                                      columns={fieldColumns}
-                                      dataSource={paramRecord.fields}
-                                      pagination={false}
-                                      size="small"
-                                      rowKey={(f) => f.name}
-                                    />
-                                  </div>
-                                );
-                              },
-                              defaultExpandAllRows: true,
-                              rowExpandable: (paramRecord) => (paramRecord.fields || []).length > 0,
-                            }}
-                          />
-                        </div>
-                      );
-                    },
+                    expandedRowRender: (apiRecord) => (
+                      <ParameterTable
+                        apiRecord={apiRecord}
+                        onParamChange={handleParameterDescriptionChange}
+                        onFieldChange={handleEntityFieldDescriptionChange}
+                      />
+                    ),
                     rowExpandable: (apiRecord) => (apiRecord.parameters || []).length > 0,
                   }}
                 />

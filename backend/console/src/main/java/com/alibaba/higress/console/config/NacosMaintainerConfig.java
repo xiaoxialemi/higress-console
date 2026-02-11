@@ -19,6 +19,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import com.alibaba.nacos.api.exception.NacosException;
+import com.alibaba.nacos.maintainer.client.ai.AiMaintainerFactory;
+import com.alibaba.nacos.maintainer.client.ai.AiMaintainerService;
 import com.alibaba.nacos.maintainer.client.config.ConfigMaintainerFactory;
 import com.alibaba.nacos.maintainer.client.config.ConfigMaintainerService;
 import com.alibaba.nacos.maintainer.client.naming.NamingMaintainerFactory;
@@ -52,5 +54,14 @@ public class NacosMaintainerConfig {
         properties.setProperty("username", username);
         properties.setProperty("password", password);
         return NamingMaintainerFactory.createNamingMaintainerService(properties);
+    }
+
+    @Bean
+    public AiMaintainerService aiMaintainerService() throws NacosException {
+        Properties properties = new Properties();
+        properties.setProperty("serverAddr", serverAddr);
+        properties.setProperty("username", username);
+        properties.setProperty("password", password);
+        return AiMaintainerFactory.createAiMaintainerService(properties);
     }
 }

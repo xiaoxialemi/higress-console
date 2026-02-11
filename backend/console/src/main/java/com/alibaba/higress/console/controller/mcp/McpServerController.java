@@ -42,6 +42,8 @@ import com.alibaba.higress.sdk.model.mcp.SwaggerContent;
 import com.alibaba.higress.sdk.service.mcp.McpConverter;
 import com.alibaba.higress.sdk.service.mcp.McpServerHelper;
 import com.alibaba.higress.sdk.service.mcp.McpServerService;
+import com.alibaba.higress.console.service.McpRegisterRequest;
+import com.alibaba.higress.console.service.NacosMcpService;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -71,6 +73,21 @@ public class McpServerController {
         return ResponseEntity.ok(Response.success(McpConverter.swaggerToMcpConfig(swaggerContent.getContent())));
     }
 
+    @Resource
+    private NacosMcpService nacosMcpService;
+
+    @PostMapping("/registerToNacos")
+    @Operation(summary = "Register MCP Server to Nacos")
+    @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "MCP Server registered successfully"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")})
+    public ResponseEntity<Response<String>> registerToNacos(@Valid @RequestBody McpRegisterRequest request) {
+        try {
+            String result = nacosMcpService.registerMcpServer(request);
+            return ResponseEntity.ok(Response.success(result));
+        } catch (Exception e) {
+            return ResponseEntity.ok(Response.failure("Failed to register MCP Server: " + e.getMessage()));
+        }
+    }
 
     @PutMapping
     @Operation(summary = "Add or update a mcp server instance")

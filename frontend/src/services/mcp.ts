@@ -45,3 +45,7 @@ export const listMcpConsumers = (
 export const swaggerToMcpConfig = (payload: { content: string }): Promise<any> => {
   return request.post<any, any>(`${BASE_URL}/swaggerToMcpConfig`, payload);
 };
+
+export const registerToNacos = (payload: any): Promise<any> => {
+  return request.post<any, any>(`${BASE_URL}/registerToNacos`, payload);
+};
