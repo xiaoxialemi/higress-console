@@ -39,6 +39,7 @@ import com.alibaba.higress.sdk.model.mcp.McpServerConsumers;
 import com.alibaba.higress.sdk.model.mcp.McpServerConsumersPageQuery;
 import com.alibaba.higress.sdk.model.mcp.McpServerPageQuery;
 import com.alibaba.higress.sdk.model.mcp.SwaggerContent;
+import com.alibaba.higress.sdk.service.mcp.McpConverter;
 import com.alibaba.higress.sdk.service.mcp.McpServerHelper;
 import com.alibaba.higress.sdk.service.mcp.McpServerService;
 
@@ -67,8 +68,9 @@ public class McpServerController {
     @ApiResponses(value = {@ApiResponse(responseCode = "200", description = "swagger convert successfully"),
         @ApiResponse(responseCode = "500", description = "Internal server error")})
     public ResponseEntity<Response<String>> swaggerToMcpConfig(@Valid @RequestBody SwaggerContent swaggerContent) {
-        return ResponseEntity.ok(Response.success(mcpServerHelper.swaggerToMcpConfig(swaggerContent.getContent())));
+        return ResponseEntity.ok(Response.success(McpConverter.swaggerToMcpConfig(swaggerContent.getContent())));
     }
+
 
     @PutMapping
     @Operation(summary = "Add or update a mcp server instance")

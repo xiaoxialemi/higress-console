@@ -6,6 +6,7 @@ import { Button, Card, Col, Form, Input, message, Modal, Row, Select, Space, Tab
 import React, { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConfigs, getNamespaces, publishConfig, getConfigDetail, NacosConfig } from '@/services/nacos';
+import { swaggerToMcpConfig } from '@/services/mcp';
 import CodeEditor from '@/components/CodeEditor';
 
 const { Option } = Select;
@@ -62,6 +63,10 @@ const NacosList: React.FC = () => {
   const [filterText, setFilterText] = useState<string>('');
   const [publishLoading, setPublishLoading] = useState(false);
   const [configMetadata, setConfigMetadata] = useState<ConfigMetadata>({});
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [mcpResultVisible, setMcpResultVisible] = useState(false);
+  const [mcpResultContent, setMcpResultContent] = useState<string>('');
+  const [mcpConvertLoading, setMcpConvertLoading] = useState(false);
   const watchedContent = Form.useWatch('content', editForm);
   const watchedType = Form.useWatch('type', editForm);
 
@@ -366,6 +371,126 @@ const NacosList: React.FC = () => {
     });
   }, [apiData, filterText]);
 
+  // Map Java types to OpenAPI types
+  const javaTypeToOpenApi = (jType: string): { type: string; format?: string } => {
+    const refinedType = (jType || '').replace(/\?/g, '');
+    if (['int', 'Integer'].includes(refinedType)) return { type: 'integer', format: 'int32' };
+    if (['long', 'Long'].includes(refinedType)) return { type: 'integer', format: 'int64' };
+    if (['float', 'Float', 'double', 'Double', 'BigDecimal'].includes(refinedType)) return { type: 'number' };
+    if (['boolean', 'Boolean'].includes(refinedType)) return { type: 'boolean' };
+    if (['LocalDateTime', 'Date', 'Instant', 'ZonedDateTime'].includes(refinedType)) return { type: 'string', format: 'date-time' };
+    if (['LocalDate'].includes(refinedType)) return { type: 'string', format: 'date' };
+    if (refinedType.startsWith('List') || refinedType.startsWith('Set')) return { type: 'array' };
+    return { type: 'string' };
+  };
+
+  // Convert custom API registry data → standard OpenAPI 3.0 spec
+  const convertToOpenApiSpec = (apis: ApiRegistryItem[], meta: ConfigMetadata): object => {
+    const paths: Record<string, any> = {};
+    const schemas: Record<string, any> = {};
+
+    apis.forEach(api => {
+      const method = (api.httpMethod || 'get').toLowerCase();
+      const pathKey = api.path || '/';
+      if (!paths[pathKey]) paths[pathKey] = {};
+
+      const operation: any = {
+        summary: api.summary || '',
+        description: api.description || api.summary || '',
+        operationId: `${api.methodName || method}_${pathKey.replace(/[^a-zA-Z0-9]/g, '_')}`,
+        tags: api.tags || [],
+        parameters: [],
+        responses: {
+          200: { description: 'Success' },
+        },
+      };
+
+      (api.parameters || []).forEach(param => {
+        if (param.parameterType === 'REQUEST_BODY') {
+          // Build schema from fields
+          const schemaName = param.type || `${param.name}Schema`;
+          const properties: Record<string, any> = {};
+          const requiredFields: string[] = [];
+          (param.fields || []).forEach(f => {
+            const mapped = javaTypeToOpenApi(f.type);
+            properties[f.name] = { ...mapped, description: f.description || '' };
+            if (f.required) requiredFields.push(f.name);
+          });
+          schemas[schemaName] = {
+            type: 'object',
+            properties,
+            ...(requiredFields.length > 0 ? { required: requiredFields } : {}),
+          };
+          operation.requestBody = {
+            required: param.required !== false,
+            content: {
+              'application/json': {
+                schema: { $ref: `#/components/schemas/${schemaName}` },
+              },
+            },
+          };
+        } else {
+          // PATH_VARIABLE → path, REQUEST_PARAM → query
+          const inValue = param.parameterType === 'PATH_VARIABLE' ? 'path' : 'query';
+          const mapped = javaTypeToOpenApi(param.type);
+          operation.parameters.push({
+            name: param.name,
+            in: inValue,
+            required: inValue === 'path' ? true : (param.required || false),
+            description: param.description || '',
+            schema: mapped,
+          });
+        }
+      });
+
+      if (operation.parameters.length === 0) delete operation.parameters;
+      paths[pathKey][method] = operation;
+    });
+
+    return {
+      openapi: '3.0.3',
+      info: {
+        title: meta.serviceName || 'API',
+        version: '1.0.0',
+        description: `APIs from ${meta.serviceName || 'service'}`,
+      },
+      servers: [{ url: '/' }],
+      paths,
+      components: { schemas },
+    };
+  };
+
+  const handleConvertToMcp = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('Please select at least one API');
+      return;
+    }
+    setMcpConvertLoading(true);
+    try {
+      const selectedApis = apiData.filter((item, index) => {
+        const key = `${item.path}@@${index}`;
+        return selectedRowKeys.includes(key);
+      });
+
+      // Convert to standard OpenAPI 3.0 spec
+      const openApiSpec = convertToOpenApiSpec(selectedApis, configMetadata);
+
+      const res = await swaggerToMcpConfig({ content: JSON.stringify(openApiSpec) });
+      if (res && res.data) {
+        setMcpResultContent(res.data);
+      } else if (typeof res === 'string') {
+        setMcpResultContent(res);
+      } else {
+        setMcpResultContent(JSON.stringify(res, null, 2));
+      }
+      setMcpResultVisible(true);
+    } catch (error: any) {
+      message.error(`MCP config conversion failed: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setMcpConvertLoading(false);
+    }
+  };
+
   return (
     <PageContainer title={t('nacos.title') as string}>
       <Card style={{ marginBottom: 16 }}>
@@ -472,7 +597,7 @@ const NacosList: React.FC = () => {
           <Tabs activeKey={activeTab} onChange={setActiveTab}>
             {apiData.length > 0 && (
               <TabPane tab={t('nacos.apiRegistry.tab') as string} key="api">
-                <div style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Input
                     placeholder="搜索 API (Path / Summary / Method)"
                     value={filterText}
@@ -480,8 +605,21 @@ const NacosList: React.FC = () => {
                     style={{ width: 300 }}
                     allowClear
                   />
+                  <Button
+                    type="primary"
+                    icon={<ClusterOutlined />}
+                    disabled={selectedRowKeys.length === 0}
+                    loading={mcpConvertLoading}
+                    onClick={handleConvertToMcp}
+                  >
+                    生成 MCP 配置 ({selectedRowKeys.length})
+                  </Button>
                 </div>
                 <Table
+                  rowSelection={{
+                    selectedRowKeys,
+                    onChange: (keys) => setSelectedRowKeys(keys),
+                  }}
                   columns={apiColumns}
                   dataSource={filteredApiData}
                   pagination={false}
@@ -610,6 +748,35 @@ const NacosList: React.FC = () => {
             </TabPane>
           </Tabs>
         </Form>
+      </Modal>
+
+      <Modal
+        title="MCP Server Configuration"
+        open={mcpResultVisible}
+        onCancel={() => setMcpResultVisible(false)}
+        width={800}
+        footer={[
+          <Button
+            key="copy"
+            type="primary"
+            onClick={() => {
+              navigator.clipboard.writeText(mcpResultContent);
+              message.success('Copied to clipboard!');
+            }}
+          >
+            Copy to Clipboard
+          </Button>,
+          <Button key="close" onClick={() => setMcpResultVisible(false)}>
+            Close
+          </Button>,
+        ]}
+      >
+        <CodeEditor
+          editorHeight="500px"
+          defaultLanguage="yaml"
+          value={mcpResultContent}
+          extraOptions={{ readOnly: true }}
+        />
       </Modal>
     </PageContainer >
   );
