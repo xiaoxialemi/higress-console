@@ -65,7 +65,12 @@ helm install higress-console ./helm -n higress-system \
 
 # 固定自定义控制台端口 -> 30527
 kubectl patch svc higress-console -n higress-system --type='merge' \
-  -p '{"spec": {"ports": [{"port": 8080, "nodePort": 30527}]}}'
+  -p '{"spec": {"ports": [{"port": 8888, "nodePort": 30527}]}}'
+  
+# 如果启动失败，修改deployment中的端口改为8888
+kubectl edit deployment -n higress-system higress-console
+
+  
 ```
 
 ---
@@ -120,5 +125,6 @@ kubectl rollout restart deployment/higress-console -n higress-system
 - **查看监听端口** `kubectl get svc -n higress-system`
 - **日志诊断**: `kubectl logs -f deployment/higress-console -n higress-system`
 - **看指定pod的日志**: `kubectl logs -n higress-system higress-console-5b7f965dc6-rq5qx`
+- **加 -p 参数看上一次崩溃的遗言**: `kubectl logs -p -n higress-system higress-console-5b7f965dc6-rq5qx`
 - **连通测试**:
   `kubectl exec -it <pod-name> -n higress-system -- curl -I http://higress-controller.higress-system.svc:15014/debug/registryz`
