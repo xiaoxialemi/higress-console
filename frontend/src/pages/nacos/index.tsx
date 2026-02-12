@@ -1,12 +1,22 @@
-/* eslint-disable max-lines */
-import { ClusterOutlined, RedoOutlined, CloudUploadOutlined } from '@ant-design/icons';
+import {
+  ClusterOutlined,
+  RedoOutlined,
+  CloudUploadOutlined,
+  SearchOutlined,
+  EditOutlined,
+  SaveOutlined,
+  ReloadOutlined,
+  ApiOutlined,
+  ProfileOutlined,
+  DeleteOutlined,
+} from '@ant-design/icons';
 import { PageContainer } from '@ant-design/pro-layout';
 import { useRequest } from 'ahooks';
-import { Button, Card, Col, Form, Input, message, Modal, Row, Select, Space, Table, Tag, Tabs } from 'antd';
+import { Button, Card, Col, Form, Input, message, Modal, Row, Select, Space, Table, Tag, Tabs, Typography } from 'antd';
 import React, { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConfigs, getNamespaces, publishConfig, getConfigDetail, NacosConfig } from '@/services/nacos';
-import { swaggerToMcpConfig, registerToNacos } from '@/services/mcp';
+import { swaggerToMcpConfig, registerToNacos, getNacosRegisteredTools, unregisterNacosTool } from '@/services/mcp';
 import CodeEditor from '@/components/CodeEditor';
 
 const { Option } = Select;
@@ -180,6 +190,9 @@ const NacosList: React.FC = () => {
   const [mcpResultContent, setMcpResultContent] = useState<string>('');
   const [mcpConvertLoading, setMcpConvertLoading] = useState(false);
   const [registerLoading, setRegisterLoading] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState('apis');
+  const [registeredToolNames, setRegisteredToolNames] = useState<string[]>([]);
+  const [fetchRegisteredLoading, setFetchRegisteredLoading] = useState(false);
   const watchedContent = Form.useWatch('content', editForm);
   const watchedType = Form.useWatch('type', editForm);
 
@@ -249,7 +262,7 @@ const NacosList: React.FC = () => {
     fetchData(1, pageSize, value);
   };
 
-  const parseApiData = (content: string): { apis: ApiRegistryItem[]; metadata: ConfigMetadata } => {
+  const parseApiData = (content: string): { apis: ApiRegistryItem[]; metadata: ConfigMetadata; mcpTools: string[] } => {
     try {
       const parsed = JSON.parse(content);
       const metadata: ConfigMetadata = {
@@ -261,39 +274,38 @@ const NacosList: React.FC = () => {
       };
 
       if (Array.isArray(parsed)) {
-        return { apis: parsed, metadata: {} };
+        return { apis: parsed, metadata: {}, mcpTools: [] };
       }
       if (parsed.apis && Array.isArray(parsed.apis)) {
-        return { apis: parsed.apis, metadata };
+        return {
+          apis: parsed.apis,
+          metadata,
+          mcpTools: parsed.metadata?.mcpTools || [],
+        };
       }
-      return { apis: [], metadata: {} };
+      return { apis: [], metadata: {}, mcpTools: [] };
     } catch (e) {
-      return { apis: [], metadata: {} };
+      return { apis: [], metadata: {}, mcpTools: [] };
     }
   };
 
   const onEdit = async (record: NacosConfig) => {
-    setLoading(true);
     try {
-      const detail = await getConfigDetail({
-        dataId: record.dataId,
-        group: (record.group || record.groupName || '') as string,
+      setLoading(true);
+      const res = await getConfigDetail({
         namespaceId: selectedNamespace,
+        dataId: record.dataId,
+        group: record.group || record.groupName || 'DEFAULT_GROUP',
       });
-
-      const editRecord: NacosConfig = {
-        ...record,
-        ...detail,
-        group: (detail.group || detail.groupName || record.group || record.groupName || '') as string,
-      };
-
-      setEditingConfig(editRecord);
-      editForm.resetFields();
-      editForm.setFieldsValue(editRecord);
-
-      const { apis, metadata } = parseApiData(detail.content || record.content || '');
+      setEditingConfig(res);
+      editForm.setFieldsValue({
+        ...res,
+        type: res.type || 'json',
+      });
+      const { apis, metadata, mcpTools } = parseApiData(res.content || '');
       setApiData(apis);
       setConfigMetadata(metadata);
+      setSelectedRowKeys([]); // Always start with empty selection (decoupled from metadata)
       setFilterText('');
       setActiveTab(apis.length > 0 ? 'api' : 'raw');
 
@@ -336,6 +348,9 @@ const NacosList: React.FC = () => {
     }
   };
 
+  // Data syncing is now explicitly handled in change handlers (handleApiDescriptionChange etc.)
+  // and we no longer sync selectedRowKeys to config metadata to achieve true decoupling.
+
   const updateContentFromApiData = (newData: ApiRegistryItem[]) => {
     try {
       const currentContent = editForm.getFieldValue('content');
@@ -346,8 +361,10 @@ const NacosList: React.FC = () => {
       const parsed = JSON.parse(currentContent);
       if (Array.isArray(parsed)) {
         editForm.setFieldsValue({ content: JSON.stringify(newData, null, 2) });
-      } else if (parsed.apis && Array.isArray(parsed.apis)) {
-        parsed.apis = newData;
+      } else {
+        if (parsed.apis && Array.isArray(parsed.apis)) {
+          parsed.apis = newData;
+        }
         editForm.setFieldsValue({ content: JSON.stringify(parsed, null, 2) });
       }
     } catch (e) {
@@ -412,6 +429,29 @@ const NacosList: React.FC = () => {
     updateContentFromApiData(newData);
   };
 
+  useEffect(() => {
+    if (editModalVisible && configMetadata.serviceName) {
+      fetchNacosRegisteredTools();
+    }
+  }, [editModalVisible, configMetadata.serviceName]);
+
+  const fetchNacosRegisteredTools = async () => {
+    if (!configMetadata.serviceName) return;
+    setFetchRegisteredLoading(true);
+    try {
+      const toolNames = await getNacosRegisteredTools(
+        configMetadata.sourceNamespace || selectedNamespace || 'platform-hub',
+        configMetadata.serviceName,
+      );
+      setRegisteredToolNames(toolNames || []);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to fetch registered tools', error);
+    } finally {
+      setFetchRegisteredLoading(false);
+    }
+  };
+
   const apiColumns = useMemo(() => [
     {
       title: t('nacos.apiRegistry.columns.method'),
@@ -435,6 +475,31 @@ const NacosList: React.FC = () => {
       ellipsis: true,
     },
     {
+      title: 'MCP Status',
+      key: 'mcpStatus',
+      width: 120,
+      render: (_, record) => {
+        const toolName = `${record.httpMethod.toLowerCase()}_${record.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const isRegistered = registeredToolNames.includes(toolName);
+        const isSelected = selectedRowKeys.includes(`${record.path}@@${record.httpMethod}`);
+        const isMcpTab = activeSubTab === 'mcp';
+        return (
+          <Space direction="vertical" size={2}>
+            {isRegistered && (
+              <Tag color="success">
+                {isMcpTab ? t('nacos.apiRegistry.mcpStatus.existed') : t('nacos.apiRegistry.mcpStatus.registered')}
+              </Tag>
+            )}
+            {isSelected && !isRegistered && (
+              <Tag color="processing">
+                {isMcpTab ? t('nacos.apiRegistry.mcpStatus.new') : t('nacos.apiRegistry.mcpStatus.selected')}
+              </Tag>
+            )}
+          </Space>
+        );
+      },
+    },
+    {
       title: t('nacos.apiRegistry.columns.summary'),
       dataIndex: 'summary',
       key: 'summary',
@@ -447,7 +512,7 @@ const NacosList: React.FC = () => {
       ),
     },
     {
-      title: t('nacos.apiRegistry.columns.description') as string,
+      title: t('nacos.apiRegistry.columns.description'),
       dataIndex: 'description',
       key: 'description',
       render: (val: string, record: ApiRegistryItem) => (
@@ -458,7 +523,99 @@ const NacosList: React.FC = () => {
         />
       ),
     },
-  ], [apiData, t]);
+  ], [apiData, t, registeredToolNames, selectedRowKeys, activeSubTab]);
+
+  const handleUnregisterTool = (toolName: string) => {
+    Modal.confirm({
+      title: t('nacos.apiRegistry.unregisterConfirm'),
+      content: t('nacos.apiRegistry.unregisterConfirmDesc', { name: toolName }),
+      okText: t('nacos.apiRegistry.unregister'),
+      okType: 'danger',
+      cancelText: t('misc.cancel'),
+      onOk: async () => {
+        try {
+          await unregisterNacosTool(
+            configMetadata.sourceNamespace || selectedNamespace || 'public',
+            configMetadata.serviceName || '',
+            toolName,
+          );
+          message.success(t('nacos.publishSuccess'));
+          fetchNacosRegisteredTools();
+        } catch (error: any) {
+          message.error(`Unregistration failed: ${error?.message || 'Unknown error'}`);
+        }
+      },
+    });
+  };
+
+  const mcpColumns = useMemo(() => {
+    const cols = apiColumns.map(col => {
+      if (col.key === 'path') {
+        return {
+          ...col,
+          ellipsis: false,
+          width: 250,
+          render: (text: string, record: ApiRegistryItem) => {
+            const toolName = `${record.httpMethod.toLowerCase()}_${record.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            return (
+              <div style={{ padding: '2px 0' }}>
+                <Typography.Text strong style={{ wordBreak: 'break-all', display: 'block', marginBottom: 4 }}>
+                  {text}
+                </Typography.Text>
+                <Space size={4} align="center" style={{ flexWrap: 'nowrap' }}>
+                  <Tag style={{
+                    color: '#8c8c8c',
+                    background: '#f5f5f5',
+                    border: 'none',
+                    fontSize: '10px',
+                    padding: '0 4px',
+                    margin: 0,
+                    height: '18px',
+                    lineHeight: '18px',
+                  }}
+                  >
+                    {t('nacos.apiRegistry.toolName')}
+                  </Tag>
+                  <Typography.Text
+                    type="secondary"
+                    style={{ fontSize: '11px', fontFamily: 'SFMono-Regular, Consolas, monospace' }}
+                    copyable={{ tooltips: false, text: toolName }}
+                  >
+                    {toolName}
+                  </Typography.Text>
+                </Space>
+              </div>
+            );
+          },
+        };
+      }
+      return col;
+    });
+
+    const actionColumn: any = {
+      title: t('nacos.apiRegistry.operation'),
+      key: 'action',
+      width: 100,
+      fixed: 'right',
+      render: (_: any, record: ApiRegistryItem) => {
+        const toolName = `${record.httpMethod.toLowerCase()}_${record.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const isRegistered = registeredToolNames.includes(toolName);
+        if (!isRegistered) return null;
+        return (
+          <Button
+            type="text"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => handleUnregisterTool(toolName)}
+          >
+            {t('nacos.apiRegistry.unregister')}
+          </Button>
+        );
+      },
+    };
+    cols.push(actionColumn);
+    return cols;
+  }, [apiColumns, registeredToolNames, t]);
 
   const columns = [
     {
@@ -687,9 +844,13 @@ const NacosList: React.FC = () => {
 
       const res = await registerToNacos(payload);
       if (res && res.data) {
-        message.success(`MCP Server registered successfully: ${res.data}`);
+        message.success(t('nacos.publishSuccess'));
+        fetchNacosRegisteredTools(); // Refresh after successful registration
+        setSelectedRowKeys([]); // Clear selection after successful registration
       } else {
-        message.success('MCP Server registered successfully!');
+        message.success(t('nacos.publishSuccess'));
+        fetchNacosRegisteredTools();
+        setSelectedRowKeys([]);
       }
     } catch (error: any) {
       message.error(`Registration failed: ${error?.message || 'Unknown error'}`);
@@ -702,7 +863,7 @@ const NacosList: React.FC = () => {
     <PageContainer title={t('nacos.title') as string}>
       <Card style={{ marginBottom: 16 }}>
         <Form form={form} layout="inline" onFinish={onSearch} initialValues={{ namespace: 'platform-hub' }}>
-          <Form.Item label={t('nacos.columns.namespace') as string}>
+          <Form.Item label={t('nacos.columns.namespace') as string} style={{ display: 'none' }}>
             <Select
               value={selectedNamespace}
               onChange={handleNamespaceChange}
@@ -808,56 +969,102 @@ const NacosList: React.FC = () => {
           <Tabs activeKey={activeTab} onChange={setActiveTab}>
             {apiData.length > 0 && (
               <TabPane tab={t('nacos.apiRegistry.tab') as string} key="api">
-                <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Input
-                    placeholder="搜索 API (Path / Summary / Method)"
-                    value={filterText}
-                    onChange={e => setFilterText(e.target.value)}
-                    style={{ width: 300 }}
-                    allowClear
-                  />
-                  <Space>
-                    <Button
-                      type="primary"
-                      icon={<ClusterOutlined />}
-                      disabled={selectedRowKeys.length === 0}
-                      loading={mcpConvertLoading}
-                      onClick={handleConvertToMcp}
-                    >
-                      生成 MCP 配置 ({selectedRowKeys.length})
-                    </Button>
-                    <Button
-                      type="default"
-                      icon={<CloudUploadOutlined />}
-                      disabled={selectedRowKeys.length === 0}
-                      loading={registerLoading}
-                      onClick={handleRegisterToNacos}
-                    >
-                      注册到 Nacos ({selectedRowKeys.length})
-                    </Button>
-                  </Space>
-                </div>
-                <Table
-                  rowSelection={{
-                    selectedRowKeys,
-                    onChange: (keys) => setSelectedRowKeys(keys),
-                  }}
-                  columns={apiColumns}
-                  dataSource={filteredApiData}
-                  pagination={false}
-                  rowKey={(record) => `${record.path}@@${record.httpMethod}`}
-                  scroll={{ y: 500 }}
-                  expandable={{
-                    expandedRowRender: (apiRecord) => (
-                      <ParameterTable
-                        apiRecord={apiRecord}
-                        onParamChange={handleParameterDescriptionChange}
-                        onFieldChange={handleEntityFieldDescriptionChange}
+                <Tabs activeKey={activeSubTab} onChange={setActiveSubTab} style={{ marginTop: -16 }}>
+                  <TabPane tab={<span><ProfileOutlined /> {t('nacos.apiRegistry.apiList')}</span>} key="apis">
+                    <div style={{ marginBottom: 16, marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Input
+                        placeholder={t('nacos.apiRegistry.searchHint') as string}
+                        value={filterText}
+                        onChange={e => setFilterText(e.target.value)}
+                        style={{ width: 300 }}
+                        allowClear
                       />
-                    ),
-                    rowExpandable: (apiRecord) => (apiRecord.parameters || []).length > 0,
-                  }}
-                />
+                      <Space>
+                        <span>{t('nacos.apiRegistry.selectedLabel')}: <Tag color="blue">{selectedRowKeys.length}</Tag></span>
+                        <span>{t('nacos.apiRegistry.registeredLabel')}: <Tag color="green">{registeredToolNames.length}</Tag></span>
+                      </Space>
+                    </div>
+                    <Table
+                      rowSelection={{
+                        selectedRowKeys,
+                        onChange: (keys) => setSelectedRowKeys(keys),
+                      }}
+                      columns={apiColumns}
+                      dataSource={filteredApiData}
+                      pagination={false}
+                      rowKey={(record) => `${record.path}@@${record.httpMethod}`}
+                      scroll={{ y: 400 }}
+                      expandable={{
+                        expandedRowRender: (apiRecord) => (
+                          <ParameterTable
+                            apiRecord={apiRecord}
+                            onParamChange={handleParameterDescriptionChange}
+                            onFieldChange={handleEntityFieldDescriptionChange}
+                          />
+                        ),
+                        rowExpandable: (apiRecord) => (apiRecord.parameters || []).length > 0,
+                      }}
+                    />
+                  </TabPane>
+                  <TabPane
+                    tab={(
+                      <span>
+                        <ApiOutlined />
+                        {' '}
+                        {t('nacos.apiRegistry.mcpTab')}
+                        {' '}
+                        {t('nacos.apiRegistry.mcpRegisteredCount', { count: registeredToolNames.length })}
+                      </span>
+                    )}
+                    key="mcp"
+                  >
+                    <div style={{ marginBottom: 16, marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography.Text type="secondary">
+                        {t('nacos.apiRegistry.mcpDescription')}
+                      </Typography.Text>
+                      <Space>
+                        <Button
+                          type="primary"
+                          icon={<ClusterOutlined />}
+                          disabled={selectedRowKeys.length === 0}
+                          loading={mcpConvertLoading}
+                          onClick={handleConvertToMcp}
+                          style={{ display: 'none' }}
+                        >
+                          {t('nacos.apiRegistry.generateMcpConfig', { count: selectedRowKeys.length })}
+                        </Button>
+                        <Button
+                          type="primary"
+                          icon={<CloudUploadOutlined />}
+                          disabled={selectedRowKeys.length === 0}
+                          loading={registerLoading}
+                          onClick={handleRegisterToNacos}
+                        >
+                          {t('nacos.apiRegistry.registerToNacos', { count: selectedRowKeys.length })}
+                        </Button>
+                        <Button
+                          type="primary"
+                          icon={<ReloadOutlined />}
+                          onClick={fetchNacosRegisteredTools}
+                          loading={fetchRegisteredLoading}
+                        >
+                          {t('nacos.apiRegistry.refreshStatus')}
+                        </Button>
+                      </Space>
+                    </div>
+                    <Table
+                      columns={mcpColumns}
+                      dataSource={apiData.filter(item => {
+                        const toolName = `${item.httpMethod.toLowerCase()}_${item.path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                        return selectedRowKeys.includes(`${item.path}@@${item.httpMethod}`) || registeredToolNames.includes(toolName);
+                      })}
+                      pagination={false}
+                      rowKey={(record) => `${record.path}@@${record.httpMethod}`}
+                      size="small"
+                      scroll={{ y: 400 }}
+                    />
+                  </TabPane>
+                </Tabs>
               </TabPane>
             )}
             <TabPane tab={t('nacos.apiRegistry.raw') as string} key="raw" forceRender>

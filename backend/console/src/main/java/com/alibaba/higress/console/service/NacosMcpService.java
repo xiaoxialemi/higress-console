@@ -13,6 +13,7 @@
 package com.alibaba.higress.console.service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,9 +21,12 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 
 import com.alibaba.nacos.api.ai.constant.AiConstants;
+import com.alibaba.nacos.api.ai.model.mcp.McpEndpointInfo;
 import com.alibaba.nacos.api.ai.model.mcp.McpEndpointSpec;
 import com.alibaba.nacos.api.ai.model.mcp.McpServerBasicInfo;
+import com.alibaba.nacos.api.ai.model.mcp.McpServerDetailInfo;
 import com.alibaba.nacos.api.ai.model.mcp.McpServerRemoteServiceConfig;
+import com.alibaba.nacos.api.ai.model.mcp.McpServiceRef;
 import com.alibaba.nacos.api.ai.model.mcp.McpTool;
 import com.alibaba.nacos.api.ai.model.mcp.McpToolMeta;
 import com.alibaba.nacos.api.ai.model.mcp.McpToolSpecification;
@@ -54,39 +58,67 @@ public class NacosMcpService {
      * @return result message
      */
     public String registerMcpServer(McpRegisterRequest request) throws NacosException {
-        // 1. Build McpToolSpecification from tool list
-        McpToolSpecification toolSpec = new McpToolSpecification();
-        List<McpTool> mcpTools = new ArrayList<>();
-        Map<String, McpToolMeta> toolsMeta = new HashMap<>();
+        String namespaceId = resolveNamespace(request.getNamespaceId());
+        String serverName = request.getServerName();
 
-        for (McpRegisterRequest.ToolInfo tool : request.getTools()) {
-            McpTool mcpTool = new McpTool();
-            mcpTool.setName(tool.getName());
-            mcpTool.setDescription(tool.getDescription());
-            mcpTool.setInputSchema(buildInputSchema(tool));
-            mcpTools.add(mcpTool);
-
-            // Build tool meta with templates
-            McpToolMeta meta = new McpToolMeta();
-            meta.setEnabled(true);
-            meta.setTemplates(buildTemplates(tool));
-            toolsMeta.put(tool.getName(), meta);
+        // 1. Check if MCP server already exists to enable incremental update (merge)
+        McpServerDetailInfo existingServer = null;
+        try {
+            existingServer = aiMaintainerService.getMcpServerDetail(namespaceId, serverName, null, null);
+        } catch (NacosException e) {
+            // If not found, it's fine, we'll create it.
+            // Nacos SDK might throw exception if server doesn't exist depending on version/impl.
+            log.debug("MCP Server '{}' not found in Nacos, will create new.", serverName);
         }
 
-        toolSpec.setTools(mcpTools);
-        toolSpec.setToolsMeta(toolsMeta);
+        // 2. Prepare Tool Spec (Merged if existing)
+        McpToolSpecification toolSpec = new McpToolSpecification();
+        List<McpTool> mergedTools = new ArrayList<>();
+        Map<String, McpToolMeta> mergedToolsMeta = new HashMap<>();
 
-        // 2. Build McpEndpointSpec (REF type - reference to Nacos registered service)
+        // If exists, load existing tools into the merge pool
+        if (existingServer != null && existingServer.getToolSpec() != null) {
+            McpToolSpecification existingSpec = existingServer.getToolSpec();
+            if (existingSpec.getTools() != null) {
+                mergedTools.addAll(existingSpec.getTools());
+            }
+            if (existingSpec.getToolsMeta() != null) {
+                mergedToolsMeta.putAll(existingSpec.getToolsMeta());
+            }
+        }
+
+        // Add/Overwrite with tools from the current request
+        for (McpRegisterRequest.ToolInfo toolReq : request.getTools()) {
+            McpTool mcpTool = new McpTool();
+            mcpTool.setName(toolReq.getName());
+            mcpTool.setDescription(toolReq.getDescription());
+            mcpTool.setInputSchema(buildInputSchema(toolReq));
+
+            // Merge by name: remove existing one if present to replace with new definition
+            mergedTools.removeIf(t -> t.getName().equals(toolReq.getName()));
+            mergedTools.add(mcpTool);
+
+            // Build/Overwrite tool meta
+            McpToolMeta meta = new McpToolMeta();
+            meta.setEnabled(true);
+            meta.setTemplates(buildTemplates(toolReq));
+            mergedToolsMeta.put(toolReq.getName(), meta);
+        }
+
+        toolSpec.setTools(mergedTools);
+        toolSpec.setToolsMeta(mergedToolsMeta);
+
+        // 3. Build Endpoint and Server Basic Info
         McpEndpointSpec endpointSpec = new McpEndpointSpec();
         endpointSpec.setType(AiConstants.Mcp.MCP_ENDPOINT_TYPE_REF);
-        endpointSpec.getData().put("namespaceId", resolveNamespace(request.getNamespaceId()));
+        endpointSpec.getData().put("namespaceId", namespaceId);
         endpointSpec.getData().put("serviceName", request.getServiceName());
-        endpointSpec.getData().put("groupName", (request.getGroup() != null && !request.getGroup().isEmpty()) ? request.getGroup() : "DEFAULT_GROUP");
+        endpointSpec.getData().put("groupName",
+            (request.getGroup() != null && !request.getGroup().isEmpty()) ? request.getGroup() : "DEFAULT_GROUP");
         endpointSpec.getData().put("transportProtocol", "http");
 
-        // 3. Build McpServerBasicInfo
         McpServerBasicInfo serverSpec = new McpServerBasicInfo();
-        serverSpec.setName(request.getServerName());
+        serverSpec.setName(serverName);
         serverSpec.setProtocol(AiConstants.Mcp.MCP_PROTOCOL_HTTP);
         serverSpec.setFrontProtocol(AiConstants.Mcp.MCP_PROTOCOL_SSE);
         serverSpec.setDescription(request.getDescription());
@@ -99,32 +131,120 @@ public class NacosMcpService {
         versionDetail.setVersion("1.0.0");
         serverSpec.setVersionDetail(versionDetail);
 
-        // 4. Resolve namespace
-        String namespaceId = resolveNamespace(request.getNamespaceId());
-
-        log.info("Registering MCP Server '{}' to Nacos namespace '{}'", request.getServerName(), namespaceId);
-
-        // 5. Try create, if exists then update
-        try {
-            String mcpId = aiMaintainerService.createMcpServer(namespaceId, request.getServerName(), serverSpec,
-                toolSpec, endpointSpec);
-            log.info("Successfully created MCP Server '{}', MCP ID: {}", request.getServerName(), mcpId);
-            return "Created MCP Server successfully. ID: " + mcpId;
-        } catch (NacosException e) {
-            if (e.getErrCode() == 20005 || (e.getMessage() != null && e.getMessage().contains("existed"))) {
-                log.info("MCP Server '{}' already exists, updating...", request.getServerName());
-                boolean updated = aiMaintainerService.updateMcpServer(namespaceId, request.getServerName(), true,
-                    serverSpec, toolSpec, endpointSpec);
-                if (updated) {
-                    log.info("Successfully updated MCP Server '{}'", request.getServerName());
-                    return "Updated MCP Server successfully.";
-                } else {
-                    throw new NacosException(NacosException.SERVER_ERROR,
-                        "Failed to update MCP Server: " + request.getServerName());
-                }
+        // 4. Upsert (Create or Update)
+        if (existingServer != null) {
+            log.info("Updating existing MCP Server '{}' with merged tools (count: {})", serverName, mergedTools.size());
+            boolean updated =
+                aiMaintainerService.updateMcpServer(namespaceId, serverName, true, serverSpec, toolSpec, endpointSpec);
+            if (updated) {
+                return "Updated MCP Server successfully with merged tools.";
+            } else {
+                throw new NacosException(NacosException.SERVER_ERROR, "Failed to update MCP Server: " + serverName);
             }
-            throw e;
+        } else {
+            log.info("Creating new MCP Server '{}' with tools (count: {})", serverName, mergedTools.size());
+            String mcpId =
+                aiMaintainerService.createMcpServer(namespaceId, serverName, serverSpec, toolSpec, endpointSpec);
+            return "Created MCP Server successfully. ID: " + mcpId;
         }
+    }
+
+    /**
+     * Get list of registered tool names for a given MCP server in Nacos.
+     *
+     * @param namespaceId Nacos namespace ID
+     * @param serverName MCP server name
+     * @return list of tool names
+     */
+    public List<String> getRegisteredToolNames(String namespaceId, String serverName) throws NacosException {
+        McpServerDetailInfo mcpServer =
+            aiMaintainerService.getMcpServerDetail(resolveNamespace(namespaceId), serverName, null, null);
+        if (mcpServer == null) {
+            return Collections.emptyList();
+        }
+
+        McpToolSpecification toolSpec = mcpServer.getToolSpec();
+        if (toolSpec != null && toolSpec.getTools() != null) {
+            List<String> names = new ArrayList<>();
+            for (McpTool tool : toolSpec.getTools()) {
+                names.add(tool.getName());
+            }
+            return names;
+        }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Unregister a specific tool from MCP Server in Nacos.
+     *
+     * @param namespaceId Nacos namespace ID
+     * @param serverName MCP server name
+     * @param toolName name of the tool to remove
+     * @return true if successfully unregistered
+     */
+    public boolean unregisterMcpTool(String namespaceId, String serverName, String toolName) throws NacosException {
+        String nsId = resolveNamespace(namespaceId);
+        McpServerDetailInfo mcpServer = aiMaintainerService.getMcpServerDetail(nsId, serverName, null, null);
+        if (mcpServer == null || mcpServer.getToolSpec() == null) {
+            log.warn("Cannot unregister tool {}: MCP Server {} not found in Nacos", toolName, serverName);
+            return false;
+        }
+
+        McpToolSpecification toolSpec = mcpServer.getToolSpec();
+        List<McpTool> tools = toolSpec.getTools();
+        Map<String, McpToolMeta> toolsMeta = toolSpec.getToolsMeta();
+
+        if (tools == null || tools.isEmpty()) {
+            return true; // Already empty
+        }
+
+        boolean removed = tools.removeIf(t -> t.getName().equals(toolName));
+        if (toolsMeta != null) {
+            toolsMeta.remove(toolName);
+        }
+
+        if (removed) {
+            log.info("Unregistering tool {} from MCP Server {} in Nacos", toolName, serverName);
+            McpServerBasicInfo basicInfo = resolveBasicInfo(mcpServer, serverName);
+            McpEndpointSpec endpointSpec = resolveEndpointSpec(mcpServer);
+            return aiMaintainerService.updateMcpServer(nsId, serverName, true, basicInfo, toolSpec, endpointSpec);
+        }
+
+        return true; // Tool not found, consider success
+    }
+
+    private McpEndpointSpec resolveEndpointSpec(McpServerDetailInfo mcpServer) {
+        McpEndpointSpec endpointSpec = new McpEndpointSpec();
+        McpServerRemoteServiceConfig remoteConfig = mcpServer.getRemoteServerConfig();
+        if (remoteConfig != null && remoteConfig.getServiceRef() != null) {
+            McpServiceRef ref = remoteConfig.getServiceRef();
+            endpointSpec.setType(AiConstants.Mcp.MCP_ENDPOINT_TYPE_REF);
+            endpointSpec.getData().put("namespaceId", ref.getNamespaceId());
+            endpointSpec.getData().put("serviceName", ref.getServiceName());
+            endpointSpec.getData().put("groupName", ref.getGroupName());
+            endpointSpec.getData().put("transportProtocol", ref.getTransportProtocol());
+        } else {
+            // Fallback for direct endpoints if needed, but currently Higress uses REF
+            endpointSpec.setType(AiConstants.Mcp.MCP_ENDPOINT_TYPE_DIRECT);
+            if (mcpServer.getBackendEndpoints() != null && !mcpServer.getBackendEndpoints().isEmpty()) {
+                McpEndpointInfo first = mcpServer.getBackendEndpoints().get(0);
+                endpointSpec.getData().put("address", first.getAddress());
+                endpointSpec.getData().put("port", String.valueOf(first.getPort()));
+                endpointSpec.getData().put("protocol", first.getProtocol());
+            }
+        }
+        return endpointSpec;
+    }
+
+    private McpServerBasicInfo resolveBasicInfo(McpServerDetailInfo detail, String serverName) {
+        McpServerBasicInfo basicInfo = new McpServerBasicInfo();
+        basicInfo.setName(serverName);
+        basicInfo.setProtocol(detail.getProtocol());
+        basicInfo.setFrontProtocol(detail.getFrontProtocol());
+        basicInfo.setDescription(detail.getDescription());
+        basicInfo.setRemoteServerConfig(detail.getRemoteServerConfig());
+        basicInfo.setVersionDetail(detail.getVersionDetail());
+        return basicInfo;
     }
 
     private String resolveNamespace(String namespaceId) {

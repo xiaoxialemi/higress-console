@@ -24,7 +24,7 @@
     "systemSettings": "System Settings",
     "mcpManagement": "MCP Management",
     "mcpConfigurations": "MCP Configurations",
-    "nacosManagement": "Nacos Management"
+    "nacosManagement": "API Registry"
   },
   "index": {
     "title": "Higress Console"
@@ -990,7 +990,28 @@
         "summary": "Summary",
         "description": "Description"
       },
-      "editDescription": "Edit description"
+      "editDescription": "Edit description",
+      "mcpStatus": {
+        "registered": "Mcp Tool",
+        "selected": "Selected",
+        "existed": "Existed",
+        "new": "New"
+      },
+      "mcpTab": "MCP Preview & Register",
+      "mcpRegisteredCount": "({{count}} Registered)",
+      "mcpDescription": "The following are MCP tools that have been registered or are ready to be mapped to Nacos for this service.",
+      "generateMcpConfig": "Generate MCP Config ({{count}})",
+      "registerToNacos": "Register to Nacos ({{count}})",
+      "refreshStatus": "Refresh Status",
+      "apiList": "API List",
+      "selectedLabel": "Selected",
+      "registeredLabel": "Registered",
+      "searchHint": "Search API (Path / Summary / Method)",
+      "operation": "Operation",
+      "unregister": "Unregister",
+      "unregisterConfirm": "Unregister Confirmation",
+      "unregisterConfirmDesc": "Are you sure you want to unregister tool {{name}} from Nacos? This MCP tool will no longer be usable.",
+      "toolName": "Tool Name"
     }
   }
 }

@@ -103,6 +103,8 @@ docker save higress-console:custom-v1 | k3s ctr images import -
 ```bash
 # 重启自定义控制台 Pod
 kubectl rollout restart deployment/higress-console -n higress-system
+
+kubectl rollout restart deployment higress-console higress-controller higress-gateway -n higress-system
 ```
 
 ---
@@ -128,3 +130,20 @@ kubectl rollout restart deployment/higress-console -n higress-system
 - **加 -p 参数看上一次崩溃的遗言**: `kubectl logs -p -n higress-system higress-console-5b7f965dc6-rq5qx`
 - **连通测试**:
   `kubectl exec -it <pod-name> -n higress-system -- curl -I http://higress-controller.higress-system.svc:15014/debug/registryz`
+- **mcp工具使用**: `http://172.22.26.59:30080/mcp/{serviceName}/sse` 类似这种
+
+## 五、本地登录控制台需要token：
+
+```
+kubectl get pods -n higress-system
+
+找到 higress-console 的 pod 名字，比如 higress-console-xxx
+
+
+kubectl exec -n higress-system higress-console-777c5596ff-998cv -- cat /var/run/secrets/access-token/token
+
+或者用下面的一条命令：
+kubectl exec -n higress-system \
+$(kubectl get pod -n higress-system -l app=higress-controller -o jsonpath='{.items[0].metadata.name}') \
+-- cat /var/run/secrets/kubernetes.io/serviceaccount/token
+```

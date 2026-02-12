@@ -49,3 +49,11 @@ export const swaggerToMcpConfig = (payload: { content: string }): Promise<any> =
 export const registerToNacos = (payload: any): Promise<any> => {
   return request.post<any, any>(`${BASE_URL}/registerToNacos`, payload);
 };
+
+export const getNacosRegisteredTools = (namespaceId: string, serverName: string): Promise<string[]> => {
+  return request.get<any, string[]>(`${BASE_URL}/nacos/tools`, { params: { namespaceId, serverName } });
+};
+
+export const unregisterNacosTool = (namespaceId: string, serverName: string, toolName: string): Promise<any> => {
+  return request.delete<any, any>(`${BASE_URL}/nacos/tools`, { params: { namespaceId, serverName, toolName } });
+};

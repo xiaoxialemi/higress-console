@@ -4,7 +4,7 @@ import i18next from 'i18next';
 import { ErrorComp } from './exception';
 
 const request = axios.create({
-  timeout: 5 * 1000,
+  timeout: 60 * 1000,
   baseURL: process.env.ICE_CORE_MODE === "development" ? "/api" : "",
   headers: {
     "Content-Type": "application/json",
@@ -13,11 +13,8 @@ const request = axios.create({
 
 request.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
-  if (token) {
-    config.headers = {
-      Authorization: token,
-      ...config.headers,
-    };
+  if (token && config.headers) {
+    config.headers.Authorization = token;
   }
   if (config.method && config.method.toUpperCase() === 'GET' && config.url) {
     config.url = `${config.url}${config.url.indexOf('?') === -1 ? '?' : '&'}ts=${Date.now()}`;

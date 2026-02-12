@@ -24,7 +24,7 @@
     "systemSettings": "系统设置",
     "mcpManagement": "MCP管理",
     "mcpConfigurations": "MCP配置",
-    "nacosManagement": "Nacos配置管理"
+    "nacosManagement": "API 注册中心"
   },
   "index": {
     "title": "Higress Console"
@@ -956,7 +956,7 @@
     }
   },
   "nacos": {
-    "title": "Nacos 配置管理",
+    "title": "API 注册中心",
     "edit": "编辑配置",
     "publishSuccess": "发布成功",
     "namespacePlaceholder": "请选择命名空间",
@@ -989,7 +989,28 @@
         "summary": "Summary",
         "description": "Description"
       },
-      "editDescription": "编辑描述"
+      "editDescription": "编辑描述",
+      "mcpStatus": {
+        "registered": "Mcp 工具",
+        "selected": "已选中",
+        "existed": "已存在",
+        "new": "新增"
+      },
+      "mcpTab": "MCP 预览/注册",
+      "mcpRegisteredCount": "({{count}} 已注册)",
+      "mcpDescription": "以下是该服务已注册或准备映射到 Nacos 的 MCP 工具。",
+      "generateMcpConfig": "生成 MCP 配置 ({{count}})",
+      "registerToNacos": "注册到 Nacos ({{count}})",
+      "refreshStatus": "刷新注册状态",
+      "apiList": "API 列表",
+      "selectedLabel": "已选",
+      "registeredLabel": "已注册",
+      "searchHint": "搜索 API (Path / Summary / Method)",
+      "operation": "操作",
+      "unregister": "注销",
+      "unregisterConfirm": "确认注销",
+      "unregisterConfirmDesc": "确定要从 Nacos 中注销工具 {{name}} 吗？该 MCP 工具将无法再使用。",
+      "toolName": "工具名称"
     }
   }
 }
