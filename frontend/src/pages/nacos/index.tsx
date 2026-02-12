@@ -41,6 +41,7 @@ interface ConfigMetadata {
   apiCount?: number;
   serviceName?: string;
   sourceNamespace?: string;
+  sourceGroup?: string;
   collectedAt?: number;
 }
 
@@ -255,6 +256,7 @@ const NacosList: React.FC = () => {
         apiCount: parsed.apiCount,
         serviceName: parsed.serviceName,
         sourceNamespace: parsed.sourceNamespace,
+        sourceGroup: parsed.sourceGroup,
         collectedAt: parsed.collectedAt,
       };
 
@@ -679,6 +681,7 @@ const NacosList: React.FC = () => {
         description: `MCP Server for ${configMetadata.serviceName || 'API'}`,
         namespaceId: configMetadata.sourceNamespace || selectedNamespace || 'public',
         serviceName: configMetadata.serviceName || '',
+        group: configMetadata.sourceGroup || '',
         tools,
       };
 
@@ -782,6 +785,10 @@ const NacosList: React.FC = () => {
               <Col span={12}>
                 <span style={{ color: '#888' }}>Namespace: </span>
                 <span style={{ fontWeight: 500 }}>{configMetadata.sourceNamespace || '-'}</span>
+              </Col>
+              <Col span={12}>
+                <span style={{ color: '#888' }}>Group: </span>
+                <span style={{ fontWeight: 500 }}>{configMetadata.sourceGroup || '-'}</span>
               </Col>
               <Col span={12}>
                 <span style={{ color: '#888' }}>API Count: </span>

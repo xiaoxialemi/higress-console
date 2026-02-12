@@ -48,6 +48,11 @@ public class McpRegisterRequest {
     private String serviceName;
 
     /**
+     * Nacos group name.
+     */
+    private String group;
+
+    /**
      * List of tools to register.
      */
     private List<ToolInfo> tools;

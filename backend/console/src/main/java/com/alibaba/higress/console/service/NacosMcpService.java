@@ -81,7 +81,7 @@ public class NacosMcpService {
         endpointSpec.setType(AiConstants.Mcp.MCP_ENDPOINT_TYPE_REF);
         endpointSpec.getData().put("namespaceId", resolveNamespace(request.getNamespaceId()));
         endpointSpec.getData().put("serviceName", request.getServiceName());
-        endpointSpec.getData().put("groupName", "DEFAULT_GROUP");
+        endpointSpec.getData().put("groupName", (request.getGroup() != null && !request.getGroup().isEmpty()) ? request.getGroup() : "DEFAULT_GROUP");
         endpointSpec.getData().put("transportProtocol", "http");
 
         // 3. Build McpServerBasicInfo
