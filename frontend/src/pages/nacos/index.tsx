@@ -113,7 +113,18 @@ interface ParameterTableProps {
 const ParameterTable: React.FC<ParameterTableProps> = ({ apiRecord, onParamChange, onFieldChange }) => {
   const columns = useMemo(() => [
     { title: 'Name', dataIndex: 'name', key: 'name', width: 150 },
-    { title: 'Loc', dataIndex: 'parameterType', key: 'parameterType', width: 150 },
+    {
+      title: 'Loc',
+      dataIndex: 'parameterType',
+      key: 'parameterType',
+      width: 150,
+      render: (val: string) => {
+        if (val === 'PATH_VARIABLE') return <Tag color="purple">Path</Tag>;
+        if (val === 'REQUEST_PARAM') return <Tag color="blue">Query</Tag>;
+        if (val === 'REQUEST_BODY') return <Tag color="orange">Body</Tag>;
+        return val;
+      },
+    },
     { title: 'Type', dataIndex: 'type', key: 'type', width: 150 },
     {
       title: 'Req.',
@@ -812,7 +823,7 @@ const NacosList: React.FC = () => {
             description: param.description || '',
             type: javaTypeToOpenApi(param.type).type,
             required: param.required || false,
-            position: param.parameterType === 'PATH' ? 'path' : 'query',
+            position: (param.parameterType === 'PATH' || param.parameterType === 'PATH_VARIABLE') ? 'path' : 'query',
           }];
         });
 
