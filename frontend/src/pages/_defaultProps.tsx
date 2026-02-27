@@ -87,6 +87,17 @@ export default {
               },
             ],
           },
+          {
+            name: 'menu.mcpMarket',
+            path: '/mcp-market/list',
+            hideChildrenInMenu: true,
+            children: [
+              {
+                name: 'menu.mcpMarketConfigurations',
+                path: '/mcp-market/detail',
+              },
+            ],
+          },
         ],
       },
       {

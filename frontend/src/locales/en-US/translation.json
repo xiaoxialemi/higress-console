@@ -24,6 +24,8 @@
     "systemSettings": "System Settings",
     "mcpManagement": "MCP Management",
     "mcpConfigurations": "MCP Configurations",
+    "mcpMarket": "MCP Market",
+    "mcpMarketConfigurations": "MCP Market Configurations",
     "nacosManagement": "API Registry"
   },
   "index": {

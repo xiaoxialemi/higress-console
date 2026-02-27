@@ -454,7 +454,7 @@ const NacosList: React.FC = () => {
         configMetadata.sourceNamespace || selectedNamespace || 'platform-hub',
         configMetadata.serviceName,
       );
-      setRegisteredToolNames(toolNames || []);
+      setRegisteredToolNames(Array.isArray(toolNames) ? toolNames : []);
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to fetch registered tools', error);
