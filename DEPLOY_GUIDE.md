@@ -146,4 +146,11 @@ kubectl exec -n higress-system higress-console-777c5596ff-998cv -- cat /var/run/
 kubectl exec -n higress-system \
 $(kubectl get pod -n higress-system -l app=higress-controller -o jsonpath='{.items[0].metadata.name}') \
 -- cat /var/run/secrets/kubernetes.io/serviceaccount/token
+
+然后在配置中加：
+higress-console.controller.service.host=172.22.26.59
+higress-console.controller.service.port=31014
+# 认证相关（保持不变或更新 Token）
+higress-console.controller.access-token=
+
 ```
